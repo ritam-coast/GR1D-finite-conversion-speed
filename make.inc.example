@@ -1,0 +1,12 @@
+F90=gfortran
+F90FLAGS= -O3 -fopenmp -ffree-line-length-none
+LDFLAGS= -O3 -fopenmp
+MODINC="-I ./"
+HDF5DIR=/usr/lib/x86_64-linux-gnu/hdf5/serial
+HDF5INCS=-I/usr/include/hdf5/serial
+HDF5LIBS=-L/usr/lib/x86_64-linux-gnu/hdf5/serial -lhdf5_fortran -lhdf5 -lz
+LAPACKLIBS=-llapack -lblas
+HAVE_NUC_EOS=0
+HAVE_RESTART=0
+HAVE_LEAK_ROS=0
+HAVE_LAPACK=1
