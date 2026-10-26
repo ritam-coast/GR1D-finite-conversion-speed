@@ -42,6 +42,8 @@ subroutine TOVstar
   if (conv_on .and. pp_on) then
      open(75,file='conv.in',status='old')
      read(75,*) conv_mode, conv_par, conv_w
+     read(75,*,end=92) conv_rho
+92   continue
      close(75)
      open(76,file='pp_eos_had.in',status='old')
      read(76,*) npq
@@ -49,7 +51,7 @@ subroutine TOVstar
         read(76,*) pq_rlo(i), pq_K(i), pq_G(i), pq_a(i)
      enddo
      close(76)
-     write(*,*) 'Finite-speed conversion: mode',conv_mode,' par',conv_par,' width',conv_w,' hadronic pieces',npq
+     write(*,*) 'Finite-speed conversion: mode',conv_mode,' par',conv_par,' width',conv_w,' rho_conv',conv_rho,' hadronic pieces',npq
   else
      conv_on = .false.
   endif
@@ -103,6 +105,7 @@ subroutine TOVstar
      v1(i) = v(i)
      W(i) = 1.0d0/sqrt(1.0d0-v(i)**2)
      ye(i) = 0.5d0
+     if (conv_on .and. conv_mode.ge.3) ye(i) = 0.0d0
   enddo
   call mass_interior
   call boundaries(0,0)

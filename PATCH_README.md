@@ -19,9 +19,17 @@ black holes from neutron stars deemed stable" (Borthakur, Saha, Mallick).
   - mode 1, uniform relaxation: f = 1 - exp(-t/tau), `conv.in` = `1 tau_ms width_km`;
   - mode 2, outward front: f = 1 behind r_f = v_f t, linear ramp of width w, `conv.in` = `2 v_f_in_c width_km`.
 
+  - mode 3, Lagrangian relaxation: f is carried by the fluid in the advected scalar `ye` (conserved `D*ye`),
+    starts at 0, and after every time step grows as df/dt = (1 - f)/tau wherever rho > rho_conv;
+    `conv.in` = `3 tau_ms width_km` on the first line and `rho_conv` [g/cm^3] on the second line;
+  - mode 4, Lagrangian front: as mode 3, but f = max(f, ramp) behind the outward front r_f = v_f t
+    for matter with rho > rho_conv; `conv.in` = `4 v_f_in_c width_km` and `rho_conv` on the second line.
+
   Conversion is at fixed rest-mass density and specific internal energy, so the released energy becomes heat.
+  In modes 3 and 4 conversion is irreversible and attached to the matter; matter compressed above rho_conv
+  later in the evolution starts unconverted and converts at the same rate. Modes 1 and 2 prescribe f(r,t)
+  directly (Eulerian, not advected) and are kept for comparison.
   Without `conv.in` the code behaves exactly as without this option.
-  Limitation: f is a prescribed function of (r, t) and is not advected with the fluid.
 
 ## Input files in the run directory
 

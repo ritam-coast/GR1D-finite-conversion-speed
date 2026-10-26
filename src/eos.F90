@@ -11,6 +11,9 @@ module ideal_eos_module
   logical :: conv_on = .false.
   integer :: conv_mode = 0, npq = 0, pp_iz = 1
   real*8 :: conv_par = 0.0d0, conv_w = 0.0d0
+  ! modes 3,4: converted fraction carried by the fluid in the advected scalar ye (Lagrangian, irreversible);
+  ! conv_rho: rest-mass density [g/cm^3] above which matter converts; pp_ycur: ye of the current EoS call
+  real*8 :: conv_rho = 0.0d0, pp_ycur = 0.0d0
   real*8 :: pq_rlo(128), pq_K(128), pq_G(128), pq_a(128)
 
 end module ideal_eos_module
@@ -33,7 +36,7 @@ subroutine eos_full(i,xrhoi,    &
 
   use GR1D_module, only: clite,rho_gf,press_gf,eps_gf,GR,n1,atmo
   use atmos
-  use ideal_eos_module, only: pp_iz
+  use ideal_eos_module, only: pp_iz, pp_ycur
   implicit none
 
   integer,intent(in)    :: i
@@ -52,6 +55,7 @@ subroutine eos_full(i,xrhoi,    &
   
 
   pp_iz = i
+  pp_ycur = xye
   ! convert to CGS:
   xrho = xrhoi/rho_gf
   xenr = xenri/eps_gf
@@ -199,7 +203,7 @@ subroutine eos(i,ri,tio,y,eio,xx,keytemp,keyerr,eosflag,eoskey,rfeps)
 
   use GR1D_module, only: clite,rho_gf,press_gf,eps_gf,GR,n1,atmo
   use atmos
-  use ideal_eos_module, only: pp_iz
+  use ideal_eos_module, only: pp_iz, pp_ycur
   implicit none
 
   integer, intent(in) :: i
@@ -220,6 +224,7 @@ subroutine eos(i,ri,tio,y,eio,xx,keytemp,keyerr,eosflag,eoskey,rfeps)
 
   xx = 0.0d0
   pp_iz = i
+  pp_ycur = y
 
   ! convert to CGS:
   r = ri/rho_gf
@@ -760,7 +765,11 @@ subroutine pp_eos(rho,enr,prs,dpdrho,dpde,soundsqr,keytemp)
   ec  = (pp_a(i) + pp_K(i)/(pp_G(i)-1.0d0)*rho**(pp_G(i)-1.0d0))*c2
   dPc = pp_G(i)*pp_K(i)*rho**(pp_G(i)-1.0d0)*c2
   if (conv_on) then
-     f = conv_frac(pp_iz)
+     if (conv_mode.ge.3) then
+        f = min(max(pp_ycur,0.0d0),1.0d0)
+     else
+        f = conv_frac(pp_iz)
+     endif
      if (f.lt.1.0d0) then
         i = 1
         do k=1,npq
@@ -807,3 +816,34 @@ real*8 function conv_frac(iz)
      conv_frac = 1.0d0
   endif
 end function conv_frac
+
+
+subroutine conv_source(dts)
+  ! Lagrangian conversion (conv_mode 3,4): update the converted fraction f carried in ye (and D*ye)
+  ! after each full time step. Matter converts only where rho > conv_rho; f never decreases here.
+  ! mode 3: df/dt = (1-f)/tau  (exact over the step), conv_par = tau [ms]
+  ! mode 4: f = max(f, ramp(r)) behind the outward front r_f = v_f t, conv_par = v_f [c], conv_w = width [km]
+  use ideal_eos_module
+  use GR1D_module, only: x1, n1, time, rho, ye, q, rho_gf, atmo
+  implicit none
+  real*8, intent(in) :: dts      ! time step [s]
+  integer i
+  real*8 f, rkm, rf, g
+  real*8, parameter :: l2km = 1.476625038d0, ckms = 2.99792458d5
+  if (.not.conv_on .or. conv_mode.lt.3) return
+  do i=1,n1
+     if (atmo(i).eq.1) cycle
+     if (rho(i)/rho_gf .le. conv_rho) cycle
+     f = min(max(ye(i),0.0d0),1.0d0)
+     if (conv_mode.eq.3) then
+        f = 1.0d0 - (1.0d0-f)*exp(-dts*1.0d3/conv_par)
+     else
+        rkm = x1(i)*l2km
+        rf  = conv_par*ckms*time - 0.5d0*conv_w
+        g   = min(max((rf-rkm)/conv_w + 0.5d0, 0.0d0), 1.0d0)
+        f   = max(f, g)
+     endif
+     ye(i) = f
+     q(i,4) = q(i,1)*f
+  enddo
+end subroutine conv_source

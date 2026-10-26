@@ -186,6 +186,7 @@ subroutine postStep_analysis
   
   nt=nt+1
   time = time+dt/time_gf
+  call conv_source(dt/time_gf)
   time_c = time_c + dt/time_gf*alp(ghosts1+1)
   if (GR) then
      v_prev = v
