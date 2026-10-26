@@ -22,6 +22,7 @@ SOURCES=GR1D_module.F90 \
 	sedov.F90 \
 	collapse.F90 \
 	OSC.F90 \
+	TOVstar.F90 \
 	boundaries.F90 \
 	driver.F90 \
 	tools.F90 \

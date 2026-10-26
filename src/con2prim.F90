@@ -20,6 +20,7 @@ subroutine con2prim_1
   
   real*8 tol, err, h, discrim
   real*8 low_tol
+  logical :: atmreset = .false.
   real*8 pplus,pminus
   real*8 dpdrh, dpde,dedpress,drhodpress,temp1
   real*8 vv,rrho,eeps,pp,ww,op(n1),fp,dfdp
@@ -70,6 +71,17 @@ subroutine con2prim_1
 
         err = 1.0d0
         low_tol = tol
+        if (atmo_rho_thr.gt.0.0d0) then
+           if (q(i,1)/X(i).lt.10.0d0*atmo_rho_thr .or. q(i,3)+q(i,1).le.abs(q(i,2))) then
+              call atmos_eos(i,rho(i),press(i),eps(i),cs2(i))
+              v(i)=0.0d0; v1(i)=0.0d0; W(i)=1.0d0; ye(i)=0.5d0
+              q(i,1) = X(i)*rho(i)
+              q(i,2) = 0.0d0
+              q(i,3) = rho(i)*(1.0d0+eps(i)) - q(i,1)
+              q(i,4) = q(i,1)*ye(i)
+              cycle
+           endif
+        endif
         ye(i) = q(i,4)/q(i,1)
 
         if (activate_turbulence) then
@@ -84,7 +96,7 @@ subroutine con2prim_1
 	   press(i) = 0.0d0
         else
            ! atmosphere handling:
-           if(rho(i).eq.atmo_rho) then
+           if(.false..and.rho(i).eq.atmo_rho) then
               q(i,1) = rho(i)
               q(i,2) = 0.0d0
               q(i,3) = rho(i)*eps(i)
@@ -112,6 +124,10 @@ subroutine con2prim_1
                  op(i) = press(i)
                  !here vv is romero's v not v^r
                  vv = q(i,2)/(q(i,3)+q(i,1)+op(i))
+                 if ((vv.gt.1.0d0.or.vv.lt.-1.0d0).and.rho(i).lt.1.0d11*rho_gf) then
+                    atmreset = .true.
+                    exit
+                 endif
                  if (vv.gt.1.0d0.or.vv.lt.-1.0d0) then
                     write(6,*) "We have a problem finding v:" 
                     write(6,*) "Timestep: ", nt
@@ -136,6 +152,10 @@ subroutine con2prim_1
                       eosdummy,eosdummy,eosdummy,eosdummy,eosdummy,eosdummy,&
                       eosdummy,eosdummy,eosdummy,eosdummy, &
                       keytemp,keyerr,eoskey,eos_rf_prec)
+                 if(keyerr.ne.0.and.rho(i).lt.1.0d11*rho_gf) then
+                    atmreset = .true.
+                    exit
+                 endif
                  if(keyerr.ne.0) then
                     write(6,*) "#############################################"
                     write(6,"(i4,i6,1P10E15.6)") it,i,x1(i)/length_gf,&
@@ -146,7 +166,7 @@ subroutine con2prim_1
                     stop "con2prim: Problem with EOS 1"
                  endif
                  ! atmosphere handling:
-                 if(rho(i).eq.atmo_rho) then
+                 if(.false..and.rho(i).eq.atmo_rho) then
                     q(i,1) = rho(i)
                     q(i,2) = 0.0d0
                     q(i,3) = rho(i)*eps(i)
@@ -170,6 +190,14 @@ subroutine con2prim_1
                  endif
                  err = abs(1.0d0-press(i)/op(i))
               enddo
+              if (atmreset) then
+                 atmreset = .false.
+                 call atmos_eos(i,rho(i),press(i),eps(i),cs2(i))
+                 v(i)=0.0d0; v1(i)=0.0d0; W(i)=1.0d0; ye(i)=0.5d0
+                 q(i,1) = X(i)*rho(i); q(i,2) = 0.0d0
+                 q(i,3) = rho(i)*(1.0d0+eps(i)) - q(i,1); q(i,4) = q(i,1)*ye(i)
+                 cycle
+              endif
               if(it.ge.max_iterations) then
                  do while(success.eq.0.and.pt_counter.lt.7)
                     pt_counter = pt_counter + 1
@@ -181,6 +209,14 @@ subroutine con2prim_1
                     endif
                     !if successful, press(i) is set
                  enddo
+                 if(pt_counter.eq.7.and.success.eq.0.and.rho(i).lt.1.0d11*rho_gf) then
+                    pt_counter = 0
+                    call atmos_eos(i,rho(i),press(i),eps(i),cs2(i))
+                    v(i)=0.0d0; v1(i)=0.0d0; W(i)=1.0d0; ye(i)=0.5d0
+                    q(i,1) = X(i)*rho(i); q(i,2) = 0.0d0
+                    q(i,3) = rho(i)*(1.0d0+eps(i)) - q(i,1); q(i,4) = q(i,1)*ye(i)
+                    cycle
+                 endif
                  if(pt_counter.eq.7.and.success.eq.0) then
                     write(*,*) "con2prim failed with tol > 1.0d-4", i
                     stop "con2prim problem: iteration on tol"
@@ -231,7 +267,7 @@ subroutine con2prim_1
            W(i) = 1.0d0
         else
            ! atmosphere handling:
-           if(rho(i).eq.atmo_rho) then
+           if(.false..and.rho(i).eq.atmo_rho) then
               q(i,1) = rho(i)
               q(i,2) = 0.0d0
               q(i,3) = rho(i)*eps(i)
@@ -308,7 +344,7 @@ subroutine con2prim_1
                     stop "con2prim: Problem with EOS 1"
                  endif
                  ! atmosphere handling:
-                 if(rho(i).eq.atmo_rho) then
+                 if(.false..and.rho(i).eq.atmo_rho) then
                     q(i,1) = rho(i)
                     q(i,2) = 0.0d0
                     q(i,3) = rho(i)*eps(i)
@@ -506,7 +542,7 @@ subroutine con2prim_pt(tol,i,success)
            stop "con2prim: Problem with EOS 1"
         endif
         ! atmosphere handling:
-        if(rho(i).eq.atmo_rho) then
+        if(.false..and.rho(i).eq.atmo_rho) then
            q(i,1) = rho(i)
            q(i,2) = 0.0d0
            q(i,3) = rho(i)*eps(i)

@@ -43,7 +43,8 @@ subroutine SetTimeStep
      if (do_M1) then
         sound = 1.0d0
      else
-        sound = sqrt(cs2(i))
+        sound = sqrt(max(cs2(i),0.0d0))
+        if (sound.ne.sound) sound = 1.0d0
      endif
      if (GR) then 
         if(.not.do_rotation) then
@@ -85,6 +86,7 @@ subroutine handle_output
   if(dynamic_output_control) then
      call output_control
   endif
+  if(initial_data.eq."TOV") call tov_step_hook
   if(mod(nt,ntinfo).eq. 0) then
      call outinfo
   endif

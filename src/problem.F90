@@ -55,6 +55,8 @@ subroutine problem
      write(*,*) "OSCing!"
      call OSC
 
+  else if(initial_data.eq."TOV") then
+     call TOVstar
   else if(initial_data.eq."M1test") then
 
      !setup everything in for the M1test

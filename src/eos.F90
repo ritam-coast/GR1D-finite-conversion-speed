@@ -1,4 +1,20 @@
 !-*-f90-*-
+module ideal_eos_module
+
+  real*8 idealgamma
+  real*8 idealK1
+  logical :: pp_on = .false.
+  integer :: npp = 0
+  real*8 :: pp_rlo(128), pp_K(128), pp_G(128), pp_a(128), pp_gth
+  ! finite-speed conversion: hybrid table (pp_*) blended with a hadronic table (pq_*)
+  ! P_cold = (1-f) P_had + f P_hyb, eps_cold likewise; f(r,t) set by conv_mode
+  logical :: conv_on = .false.
+  integer :: conv_mode = 0, npq = 0, pp_iz = 1
+  real*8 :: conv_par = 0.0d0, conv_w = 0.0d0
+  real*8 :: pq_rlo(128), pq_K(128), pq_G(128), pq_a(128)
+
+end module ideal_eos_module
+
 subroutine eos_full(i,xrhoi,    &
      xtemp,                   &
      xye,                     &
@@ -17,6 +33,7 @@ subroutine eos_full(i,xrhoi,    &
 
   use GR1D_module, only: clite,rho_gf,press_gf,eps_gf,GR,n1,atmo
   use atmos
+  use ideal_eos_module, only: pp_iz
   implicit none
 
   integer,intent(in)    :: i
@@ -34,6 +51,7 @@ subroutine eos_full(i,xrhoi,    &
   real*8 :: xrho, xenr
   
 
+  pp_iz = i
   ! convert to CGS:
   xrho = xrhoi/rho_gf
   xenr = xenri/eps_gf
@@ -181,6 +199,7 @@ subroutine eos(i,ri,tio,y,eio,xx,keytemp,keyerr,eosflag,eoskey,rfeps)
 
   use GR1D_module, only: clite,rho_gf,press_gf,eps_gf,GR,n1,atmo
   use atmos
+  use ideal_eos_module, only: pp_iz
   implicit none
 
   integer, intent(in) :: i
@@ -200,6 +219,7 @@ subroutine eos(i,ri,tio,y,eio,xx,keytemp,keyerr,eosflag,eoskey,rfeps)
 #endif
 
   xx = 0.0d0
+  pp_iz = i
 
   ! convert to CGS:
   r = ri/rho_gf
@@ -664,12 +684,7 @@ subroutine poly_eos(rho,enr,prs,dpdrho,dpde,soundsqr,keytemp)
 
 end subroutine poly_eos
 
-module ideal_eos_module
 
-  real*8 idealgamma
-  real*8 idealK1
-
-end module ideal_eos_module
 
 subroutine ideal_eos(rho,enr,prs,dpdrho,dpde,soundsqr,keytemp)
 
@@ -682,6 +697,10 @@ subroutine ideal_eos(rho,enr,prs,dpdrho,dpde,soundsqr,keytemp)
   integer keytemp
 
 
+  if (pp_on) then
+     call pp_eos(rho,enr,prs,dpdrho,dpde,soundsqr,keytemp)
+     return
+  endif
   if(keytemp.eq.1) then
 !	energy wanted
      prs=idealK1*rho**(idealgamma)
@@ -722,3 +741,69 @@ subroutine atmos_eos(i,xrho,xprs,xenr,xcs2)
   atmo(i) = 1
 
 end subroutine atmos_eos
+
+subroutine pp_eos(rho,enr,prs,dpdrho,dpde,soundsqr,keytemp)
+  ! cold piecewise polytrope (Read et al. form, p,eps in g/cm^3 units) + Gamma_th thermal part
+  ! optional finite-speed conversion: blend of hadronic (pq_*) and hybrid (pp_*) cold parts
+  use ideal_eos_module
+  implicit none
+  real*8 rho,enr,prs,dpdrho,dpde,soundsqr
+  integer keytemp,i,k
+  real*8, parameter :: c2 = 8.98755179d20
+  real*8 Pc,ec,dPc,Ph,eh,dPh,f
+  real*8, external :: conv_frac
+  i = 1
+  do k=1,npp
+     if (rho.ge.pp_rlo(k)) i = k
+  enddo
+  Pc  = pp_K(i)*rho**pp_G(i)*c2
+  ec  = (pp_a(i) + pp_K(i)/(pp_G(i)-1.0d0)*rho**(pp_G(i)-1.0d0))*c2
+  dPc = pp_G(i)*pp_K(i)*rho**(pp_G(i)-1.0d0)*c2
+  if (conv_on) then
+     f = conv_frac(pp_iz)
+     if (f.lt.1.0d0) then
+        i = 1
+        do k=1,npq
+           if (rho.ge.pq_rlo(k)) i = k
+        enddo
+        Ph  = pq_K(i)*rho**pq_G(i)*c2
+        eh  = (pq_a(i) + pq_K(i)/(pq_G(i)-1.0d0)*rho**(pq_G(i)-1.0d0))*c2
+        dPh = pq_G(i)*pq_K(i)*rho**(pq_G(i)-1.0d0)*c2
+        Pc  = f*Pc  + (1.0d0-f)*Ph
+        ec  = f*ec  + (1.0d0-f)*eh
+        dPc = f*dPc + (1.0d0-f)*dPh
+     endif
+  endif
+  if (keytemp.eq.1) enr = ec
+  prs    = Pc + (pp_gth-1.0d0)*rho*(enr-ec)
+  dpde   = (pp_gth-1.0d0)*rho
+  dpdrho = dPc - (pp_gth-1.0d0)*(ec + Pc/rho) + (pp_gth-1.0d0)*enr
+  soundsqr = dpdrho + dpde*prs/rho**2
+  soundsqr = max(soundsqr, 1.0d-3*prs/rho)
+end subroutine pp_eos
+
+real*8 function conv_frac(iz)
+  ! converted fraction f in zone iz at the current time
+  ! mode 1: uniform relaxation, f = 1 - exp(-t/tau), conv_par = tau [ms]
+  ! mode 2: outward front from the centre, r_f = v_f t, linear ramp of width w;
+  !         conv_par = v_f [c], conv_w = w [km]; f = 0 everywhere at t = 0
+  use ideal_eos_module
+  use GR1D_module, only: x1, n1, time
+  implicit none
+  integer, intent(in) :: iz
+  integer j
+  real*8 tms, rkm, rf
+  real*8, parameter :: l2km = 1.476625038d0, ckms = 2.99792458d5
+  ! GR1D_module: time in s, x1 in code units (G=c=Msun=1)
+  j = min(max(iz,1),n1)
+  tms = time*1.0d3
+  if (conv_mode.eq.1) then
+     conv_frac = 1.0d0 - exp(-tms/conv_par)
+  else if (conv_mode.eq.2) then
+     rkm = x1(j)*l2km
+     rf  = conv_par*ckms*time - 0.5d0*conv_w
+     conv_frac = min(max((rf-rkm)/conv_w + 0.5d0, 0.0d0), 1.0d0)
+  else
+     conv_frac = 1.0d0
+  endif
+end function conv_frac
